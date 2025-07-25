@@ -1,4 +1,4 @@
-module keycloak-lib
+module github.com/RamiroCyber/keycloak-lib
 
 go 1.24
 
