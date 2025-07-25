@@ -38,7 +38,7 @@ This library is suitable for backend services, APIs, or CLI tools requiring Keyc
 Add to your `go.mod`:
 
 ```bash
-go get github.com/RamiroCyber/keycloak-lib@v0.1.0
+go get github.com/RamiroCyber/keycloak-lib@latest
 ```
 
 Run `go mod tidy`. Requires Go 1.21+.
