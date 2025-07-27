@@ -53,6 +53,8 @@ Set in your project:
 - `KEYCLOAK_REALM`: Realm (required).
 - `KEYCLOAK_CLIENT_ID`: Client ID (required).
 - `KEYCLOAK_CLIENT_SECRET`: Secret (required).
+- `KEYCLOAK_OTHER_CLIENT_ID`: Other Client.
+
 
 ### Creating Config
 ```go
