@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"golang.org/x/oauth2"
 	"io"
 	"net/http"
 	"net/url"
@@ -69,37 +69,37 @@ func getAdminToken(ctx context.Context, config *Config) (*tokenResponse, error) 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToCreateRequest, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToExecuteRequest, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToReadResponse, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get token: %d %s", resp.StatusCode, body)
+		return nil, fmt.Errorf(ErrFailedToGetToken, resp.StatusCode, body)
 	}
 
 	var tok tokenResponse
 	if err := json.Unmarshal(body, &tok); err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToParseToken, err)
 	}
-	if tok.AccessToken == "" {
-		return nil, errors.New("no access token in response")
+	if tok.AccessToken == emptyString {
+		return nil, fmt.Errorf(ErrNoAccessToken)
 	}
 	return &tok, nil
 }
 
 func (ka *KeycloakAdmin) refreshAdminToken(ctx context.Context) error {
-	if ka.refreshToken == "" {
-		return errors.New("no refresh token available")
+	if ka.refreshToken == emptyString {
+		return fmt.Errorf(ErrNoRefreshToken)
 	}
 
 	tokenURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", ka.config.URL, ka.config.Realm)
@@ -111,30 +111,30 @@ func (ka *KeycloakAdmin) refreshAdminToken(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return err
+		return fmt.Errorf(ErrFailedToCreateRequest, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := ka.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf(ErrFailedToExecuteRequest, err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf(ErrFailedToReadResponse, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to refresh token: %d %s", resp.StatusCode, body)
+		return fmt.Errorf(ErrFailedToRefreshToken, resp.StatusCode, body)
 	}
 
 	var tok tokenResponse
 	if err := json.Unmarshal(body, &tok); err != nil {
-		return err
+		return fmt.Errorf(ErrFailedToParseToken, err)
 	}
-	if tok.AccessToken == "" {
-		return errors.New("no access token in refresh response")
+	if tok.AccessToken == emptyString {
+		return fmt.Errorf(ErrNoAccessTokenInRefresh)
 	}
 
 	ka.accessToken = tok.AccessToken
@@ -157,7 +157,7 @@ func (ka *KeycloakAdmin) ensureTokenValid(ctx context.Context) error {
 
 	tok, err := getAdminToken(ctx, ka.config)
 	if err != nil {
-		return err
+		return fmt.Errorf(ErrTokenRefreshFailed, err)
 	}
 	ka.accessToken = tok.AccessToken
 	ka.refreshToken = tok.RefreshToken
@@ -167,10 +167,10 @@ func (ka *KeycloakAdmin) ensureTokenValid(ctx context.Context) error {
 
 func NewKeycloakAdmin(ctx context.Context, config *Config) (*KeycloakAdmin, error) {
 	if config == nil {
-		return nil, fmt.Errorf("config is required")
+		return nil, fmt.Errorf(ErrConfigRequired)
 	}
-	if config.ClientID == "" || config.ClientSecret == "" {
-		return nil, fmt.Errorf("client_id and client_secret are required for admin operations")
+	if config.ClientID == emptyString || config.ClientSecret == emptyString {
+		return nil, fmt.Errorf(ErrClientIDAndSecretRequired)
 	}
 
 	tok, err := getAdminToken(ctx, config)
@@ -192,7 +192,7 @@ func NewKeycloakAdmin(ctx context.Context, config *Config) (*KeycloakAdmin, erro
 
 func (ka *KeycloakAdmin) CreateUser(ctx context.Context, params UserCreateParams) (string, error) {
 	if err := ka.ensureTokenValid(ctx); err != nil {
-		return "", fmt.Errorf("token refresh failed: %w", err)
+		return emptyString, fmt.Errorf(ErrTokenRefreshFailed, err)
 	}
 
 	enabled := true
@@ -214,7 +214,7 @@ func (ka *KeycloakAdmin) CreateUser(ctx context.Context, params UserCreateParams
 		Attributes:    params.Attributes,
 	}
 
-	if params.Password != "" {
+	if params.Password != emptyString {
 		cred := Credential{
 			Type:      "password",
 			Value:     params.Password,
@@ -225,93 +225,151 @@ func (ka *KeycloakAdmin) CreateUser(ctx context.Context, params UserCreateParams
 
 	jsonBody, err := json.Marshal(user)
 	if err != nil {
-		return "", err
+		return emptyString, fmt.Errorf(ErrFailedToMarshalUser, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ka.baseURL, bytes.NewReader(jsonBody))
 	if err != nil {
-		return "", err
+		return emptyString, fmt.Errorf(ErrFailedToCreateUserRequest, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
 
 	resp, err := ka.client.Do(req)
 	if err != nil {
-		return "", err
+		return emptyString, fmt.Errorf(ErrFailedToExecuteRequest, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to create user: %d %s", resp.StatusCode, body)
+		return emptyString, fmt.Errorf(ErrFailedToCreateUser, resp.StatusCode, body)
 	}
 
 	location := resp.Header.Get("Location")
-	if location == "" {
-		return "", errors.New("no Location header in response")
+	if location == emptyString {
+		return emptyString, fmt.Errorf(ErrNoLocationHeader)
 	}
 	parts := strings.Split(location, "/")
 	if len(parts) < 2 {
-		return "", errors.New("invalid Location header")
+		return emptyString, fmt.Errorf(ErrInvalidLocationHeader)
 	}
 	userID := parts[len(parts)-1]
 
 	return userID, nil
 }
 
-// GetUserByID fetches a user by ID.
 func (ka *KeycloakAdmin) GetUserByID(ctx context.Context, userID string) (*User, error) {
 	if err := ka.ensureTokenValid(ctx); err != nil {
-		return nil, fmt.Errorf("token refresh failed: %w", err)
+		return nil, fmt.Errorf(ErrTokenRefreshFailed, err)
 	}
 
 	url := fmt.Sprintf("%s/%s", ka.baseURL, userID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToGetUserRequest, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
 
 	resp, err := ka.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToExecuteGetUser, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to get user: %d %s", resp.StatusCode, body)
+		return nil, fmt.Errorf(ErrFailedToGetUser, resp.StatusCode, body)
 	}
 
 	var user User
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, err
+		return nil, fmt.Errorf(ErrFailedToDecodeUser, err)
 	}
 	return &user, nil
 }
 
-// DeleteUser deletes a user by ID.
 func (ka *KeycloakAdmin) DeleteUser(ctx context.Context, userID string) error {
 	if err := ka.ensureTokenValid(ctx); err != nil {
-		return fmt.Errorf("token refresh failed: %w", err)
+		return fmt.Errorf(ErrTokenRefreshFailed, err)
 	}
 
 	url := fmt.Sprintf("%s/%s", ka.baseURL, userID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf(ErrFailedToDeleteUserRequest, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
 
 	resp, err := ka.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf(ErrFailedToExecuteDeleteUser, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to delete user: %d %s", resp.StatusCode, body)
+		return fmt.Errorf(ErrFailedToDeleteUser, resp.StatusCode, body)
 	}
 	return nil
+}
+
+func (ka *KeycloakAdmin) Login(ctx context.Context, username, password string, scopes []string) (*oauth2.Token, error) {
+	if username == emptyString || password == emptyString {
+		return nil, fmt.Errorf(ErrUsernamePasswordRequired)
+	}
+	clientID := ka.config.ClientID
+	if ka.config.OtherClientID != emptyString {
+		clientID = ka.config.OtherClientID
+	}
+	if clientID == emptyString {
+		return nil, fmt.Errorf(ErrClientIDRequired)
+	}
+
+	tokenURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", ka.config.URL, ka.config.Realm)
+
+	data := url.Values{}
+	data.Set("grant_type", "password")
+	data.Set("client_id", clientID)
+	if ka.config.ClientSecret != emptyString && ka.config.OtherClientID == emptyString {
+		data.Set("client_secret", ka.config.ClientSecret)
+	}
+	data.Set("username", username)
+	data.Set("password", password)
+	if len(scopes) > 0 {
+		data.Set("scope", strings.Join(scopes, " "))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf(ErrFailedToCreateRequest, err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf(ErrFailedToExecuteRequest, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf(ErrFailedToReadResponse, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf(ErrFailedToObtainLoginToken, resp.StatusCode, body)
+	}
+
+	var token oauth2.Token
+	if err := json.Unmarshal(body, &token); err != nil {
+		return nil, fmt.Errorf(ErrFailedToParseToken, err)
+	}
+
+	if token.AccessToken == emptyString {
+		return nil, fmt.Errorf(ErrNoAccessToken)
+	}
+
+	return &token, nil
 }

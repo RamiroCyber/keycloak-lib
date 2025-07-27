@@ -8,13 +8,14 @@ import (
 )
 
 type Config struct {
-	URL          string
-	Realm        string
-	ClientID     string
-	ClientSecret string
+	URL           string
+	Realm         string
+	ClientID      string
+	ClientSecret  string
+	OtherClientID string
 }
 
-func NewConfig(url, realm, clientID, clientSecret string) (*Config, error) {
+func NewConfig(url, realm, clientID, clientSecret, otherClientID string) (*Config, error) {
 	if url == "" {
 		return nil, fmt.Errorf("KEYCLOAK_URL  variable is required")
 	}
@@ -29,17 +30,23 @@ func NewConfig(url, realm, clientID, clientSecret string) (*Config, error) {
 	}
 
 	return &Config{
-		URL:          url,
-		Realm:        realm,
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		URL:           url,
+		Realm:         realm,
+		ClientID:      clientID,
+		ClientSecret:  clientSecret,
+		OtherClientID: otherClientID,
 	}, nil
 }
 
 func (c *Config) OAuth2Config(redirectURL string, scopes []string) *oauth2.Config {
+	clientID := c.ClientID
+	if c.OtherClientID != "" {
+		clientID = c.OtherClientID
+	}
 	return &oauth2.Config{
-		ClientID:    c.ClientID,
-		RedirectURL: redirectURL,
+		ClientID:     clientID,
+		ClientSecret: c.ClientSecret,
+		RedirectURL:  redirectURL,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  fmt.Sprintf("%s/realms/%s/protocol/openid-connect/auth", c.URL, c.Realm),
 			TokenURL: fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", c.URL, c.Realm),
