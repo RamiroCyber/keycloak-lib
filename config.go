@@ -8,11 +8,11 @@ import (
 )
 
 type Config struct {
-	URL           string
-	Realm         string
-	ClientID      string
-	ClientSecret  string
-	OtherClientID string
+	URL            string
+	Realm          string
+	ClientID       string
+	ClientSecret   string
+	PublicClientID string
 }
 
 func NewConfig(url, realm, clientID, clientSecret, otherClientID string) (*Config, error) {
@@ -30,18 +30,18 @@ func NewConfig(url, realm, clientID, clientSecret, otherClientID string) (*Confi
 	}
 
 	return &Config{
-		URL:           url,
-		Realm:         realm,
-		ClientID:      clientID,
-		ClientSecret:  clientSecret,
-		OtherClientID: otherClientID,
+		URL:            url,
+		Realm:          realm,
+		ClientID:       clientID,
+		ClientSecret:   clientSecret,
+		PublicClientID: otherClientID,
 	}, nil
 }
 
 func (c *Config) OAuth2Config(redirectURL string, scopes []string) *oauth2.Config {
 	clientID := c.ClientID
-	if c.OtherClientID != "" {
-		clientID = c.OtherClientID
+	if c.PublicClientID != "" {
+		clientID = c.PublicClientID
 	}
 	return &oauth2.Config{
 		ClientID:     clientID,
