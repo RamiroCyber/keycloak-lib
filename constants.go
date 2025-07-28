@@ -5,6 +5,10 @@ const (
 )
 const (
 	ErrConfigRequired                      = "config is required"
+	ErrKeycloakURLRequired                 = "KEYCLOAK_URL variable is required"
+	ErrKeycloakRealmRequired               = "KEYCLOAK_REALM variable is required"
+	ErrKeycloakClientIDRequired            = "KEYCLOAK_CLIENT_ID variable is required"
+	ErrKeycloakClientSecretRequired        = "KEYCLOAK_CLIENT_SECRET variable is required"
 	ErrClientIDAndSecretRequired           = "client_id and client_secret are required for admin operations"
 	ErrNoAccessToken                       = "no access token in response"
 	ErrNoRefreshToken                      = "no refresh token available"
@@ -46,4 +50,5 @@ const (
 	ErrFailedToCreateAddClientRolesRequest = "failed to create add client roles request: %w"
 	ErrFailedToExecuteAddClientRoles       = "failed to execute add client roles request: %w"
 	ErrFailedToAddClientRoles              = "failed to add client roles, status: %d, body: %s"
+	ErrUsernameAndEmailRequired            = "username and email are required"
 )

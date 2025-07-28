@@ -2,6 +2,7 @@ package keycloaklib
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -15,27 +16,53 @@ type Config struct {
 	PublicClientID string
 }
 
-func NewConfig(url, realm, clientID, clientSecret, otherClientID string) (*Config, error) {
-	if url == "" {
-		return nil, fmt.Errorf("KEYCLOAK_URL  variable is required")
-	}
-	if realm == "" {
-		return nil, fmt.Errorf("KEYCLOAK_REALM  variable is required")
-	}
-	if clientID == "" {
-		return nil, fmt.Errorf("KEYCLOAK_CLIENT_ID  variable is required")
-	}
-	if clientSecret == "" {
-		return nil, fmt.Errorf("KEYCLOAK_CLIENT_SECRET  variable is required")
-	}
+type ConfigBuilder struct {
+	config Config
+}
 
-	return &Config{
-		URL:            url,
-		Realm:          realm,
-		ClientID:       clientID,
-		ClientSecret:   clientSecret,
-		PublicClientID: otherClientID,
-	}, nil
+func NewConfigBuilder() *ConfigBuilder {
+	return &ConfigBuilder{}
+}
+
+func (b *ConfigBuilder) WithURL(url string) *ConfigBuilder {
+	b.config.URL = url
+	return b
+}
+
+func (b *ConfigBuilder) WithRealm(realm string) *ConfigBuilder {
+	b.config.Realm = realm
+	return b
+}
+
+func (b *ConfigBuilder) WithClientID(clientID string) *ConfigBuilder {
+	b.config.ClientID = clientID
+	return b
+}
+
+func (b *ConfigBuilder) WithClientSecret(clientSecret string) *ConfigBuilder {
+	b.config.ClientSecret = clientSecret
+	return b
+}
+
+func (b *ConfigBuilder) WithPublicClientID(publicClientID string) *ConfigBuilder {
+	b.config.PublicClientID = publicClientID
+	return b
+}
+
+func (b *ConfigBuilder) Build() (*Config, error) {
+	if b.config.URL == emptyString {
+		return nil, errors.New(ErrKeycloakURLRequired)
+	}
+	if b.config.Realm == emptyString {
+		return nil, errors.New(ErrKeycloakRealmRequired)
+	}
+	if b.config.ClientID == emptyString {
+		return nil, errors.New(ErrKeycloakClientIDRequired)
+	}
+	if b.config.ClientSecret == emptyString {
+		return nil, errors.New(ErrKeycloakClientSecretRequired)
+	}
+	return &b.config, nil
 }
 
 func (c *Config) OAuth2Config(redirectURL string, scopes []string) *oauth2.Config {
