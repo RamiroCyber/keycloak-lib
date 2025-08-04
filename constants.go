@@ -2,7 +2,10 @@ package keycloaklib
 
 const (
 	emptyString = ""
+	PT          = "pt"
+	EN          = "en"
 )
+
 const (
 	ErrConfigRequired                           = "config is required"
 	ErrKeycloakURLRequired                      = "KEYCLOAK_URL variable is required"

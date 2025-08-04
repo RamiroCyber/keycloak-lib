@@ -14,6 +14,7 @@ type Config struct {
 	ClientID       string
 	ClientSecret   string
 	PublicClientID string
+	Language       string
 }
 
 type ConfigBuilder struct {
@@ -21,7 +22,20 @@ type ConfigBuilder struct {
 }
 
 func NewConfigBuilder() *ConfigBuilder {
-	return &ConfigBuilder{}
+	return &ConfigBuilder{
+		config: Config{
+			Language: EN,
+		},
+	}
+}
+
+func (b *ConfigBuilder) WithLanguage(language string) *ConfigBuilder {
+	if language == PT {
+		b.config.Language = PT
+	} else {
+		b.config.Language = EN
+	}
+	return b
 }
 
 func (b *ConfigBuilder) WithURL(url string) *ConfigBuilder {
@@ -50,18 +64,28 @@ func (b *ConfigBuilder) WithPublicClientID(publicClientID string) *ConfigBuilder
 }
 
 func (b *ConfigBuilder) Build() (*Config, error) {
+	lang := b.config.Language
+	if lang != PT {
+		lang = EN
+	}
+
 	if b.config.URL == emptyString {
-		return nil, errors.New(ErrKeycloakURLRequired)
+		msg := translations[lang][ErrKeycloakURLRequired]
+		return nil, errors.New(msg)
 	}
 	if b.config.Realm == emptyString {
-		return nil, errors.New(ErrKeycloakRealmRequired)
+		msg := translations[lang][ErrKeycloakRealmRequired]
+		return nil, errors.New(msg)
 	}
 	if b.config.ClientID == emptyString {
-		return nil, errors.New(ErrKeycloakClientIDRequired)
+		msg := translations[lang][ErrKeycloakClientIDRequired]
+		return nil, errors.New(msg)
 	}
 	if b.config.ClientSecret == emptyString {
-		return nil, errors.New(ErrKeycloakClientSecretRequired)
+		msg := translations[lang][ErrKeycloakClientSecretRequired]
+		return nil, errors.New(msg)
 	}
+
 	return &b.config, nil
 }
 

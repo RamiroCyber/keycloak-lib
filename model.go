@@ -15,6 +15,7 @@ type KeycloakClient struct {
 	expiry       time.Time
 	config       *Config
 	baseURL      string
+	language     string
 }
 
 type UserCreateParams struct {
@@ -103,7 +104,7 @@ type User struct {
 	Enabled         *bool               `json:"enabled,omitempty"`
 	EmailVerified   *bool               `json:"emailVerified,omitempty"`
 	Attributes      map[string][]string `json:"attributes,omitempty"`
-	RequiredActions []string            `json:"required_actions,omitempty"`
+	RequiredActions []string            `json:"requiredActions,omitempty"`
 	Credentials     []Credential        `json:"credentials,omitempty"`
 }
 
