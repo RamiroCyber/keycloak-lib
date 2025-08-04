@@ -148,32 +148,19 @@ func (ka *KeycloakClient) CreateUser(ctx context.Context, params UserCreateParam
 		return emptyString, fmt.Errorf(ErrTokenRefreshFailed, err)
 	}
 
-	enabled := true
-	if params.Enabled != nil {
-		enabled = *params.Enabled
-	}
-	emailVerified := false
-	if params.EmailVerified != nil {
-		emailVerified = *params.EmailVerified
-	}
+	enabled := params.Enabled
+	emailVerified := params.EmailVerified
 
 	user := User{
-		Username:      params.Username,
-		Email:         params.Email,
-		FirstName:     params.FirstName,
-		LastName:      params.LastName,
-		Enabled:       &enabled,
-		EmailVerified: &emailVerified,
-		Attributes:    params.Attributes,
-	}
-
-	if params.Password != emptyString {
-		cred := Credential{
-			Type:      "password",
-			Value:     params.Password,
-			Temporary: params.TemporaryPass,
-		}
-		user.Credentials = []Credential{cred}
+		Username:        params.Username,
+		Email:           params.Email,
+		FirstName:       params.FirstName,
+		LastName:        params.LastName,
+		Enabled:         &enabled,
+		EmailVerified:   &emailVerified,
+		Attributes:      params.Attributes,
+		RequiredActions: params.RequiredActions,
+		Credentials:     params.Credentials,
 	}
 
 	jsonBody, err := json.Marshal(user)
@@ -436,4 +423,69 @@ func (ka *KeycloakClient) AddClientRolesToUser(ctx context.Context, userID, clie
 		return fmt.Errorf(ErrFailedToAddClientRoles, resp.StatusCode, body)
 	}
 	return nil
+}
+
+func (ka *KeycloakClient) TriggerPasswordResetEmail(ctx context.Context, userID string) error {
+	if err := ka.ensureTokenValid(ctx); err != nil {
+		return fmt.Errorf(ErrTokenRefreshFailed, err)
+	}
+	if userID == emptyString {
+		return fmt.Errorf(ErrUserIDRequired)
+	}
+	resetURL := fmt.Sprintf("%s/admin/realms/%s/users/%s/reset-password-email", ka.config.URL, ka.config.Realm, userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, resetURL, nil)
+	if err != nil {
+		return fmt.Errorf(ErrFailedToCreateResetPasswordEmailRequest, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
+	resp, err := ka.client.Do(req)
+	if err != nil {
+		return fmt.Errorf(ErrFailedToExecuteResetPasswordEmailRequest, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf(ErrFailedToTriggerPasswordResetEmail, resp.StatusCode, body)
+	}
+	return nil
+}
+
+func (ka *KeycloakClient) GetUserIDByUsername(ctx context.Context, username string, exact bool) (string, error) {
+	if err := ka.ensureTokenValid(ctx); err != nil {
+		return emptyString, fmt.Errorf(ErrTokenRefreshFailed, err)
+	}
+	if username == emptyString {
+		return emptyString, fmt.Errorf(ErrUsernameRequired)
+	}
+	searchURL := ka.baseURL
+	params := url.Values{}
+	params.Add("username", username)
+	if exact {
+		params.Add("exact", "true")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return emptyString, fmt.Errorf(ErrFailedToCreateGetUserRequest, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
+	resp, err := ka.client.Do(req)
+	if err != nil {
+		return emptyString, fmt.Errorf(ErrFailedToExecuteGetUser, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return emptyString, fmt.Errorf(ErrFailedToGetUser, resp.StatusCode, body)
+	}
+	var users []User
+	if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
+		return emptyString, fmt.Errorf(ErrFailedToDecodeUser, err)
+	}
+	if len(users) == 0 {
+		return emptyString, fmt.Errorf(ErrNoUserFound, username)
+	}
+	if len(users) > 1 {
+		return emptyString, fmt.Errorf(ErrMultipleUsersFound, username)
+	}
+	return users[0].ID, nil
 }

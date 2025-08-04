@@ -95,15 +95,16 @@ func (b *UserCreateParamsBuilder) Build() (UserCreateParams, error) {
 }
 
 type User struct {
-	ID            string              `json:"id,omitempty"`
-	Username      string              `json:"username,omitempty"`
-	Email         string              `json:"email,omitempty"`
-	FirstName     string              `json:"firstName,omitempty"`
-	LastName      string              `json:"lastName,omitempty"`
-	Enabled       *bool               `json:"enabled,omitempty"`
-	EmailVerified *bool               `json:"emailVerified,omitempty"`
-	Attributes    map[string][]string `json:"attributes,omitempty"`
-	Credentials   []Credential        `json:"credentials,omitempty"`
+	ID              string              `json:"id,omitempty"`
+	Username        string              `json:"username,omitempty"`
+	Email           string              `json:"email,omitempty"`
+	FirstName       string              `json:"firstName,omitempty"`
+	LastName        string              `json:"lastName,omitempty"`
+	Enabled         *bool               `json:"enabled,omitempty"`
+	EmailVerified   *bool               `json:"emailVerified,omitempty"`
+	Attributes      map[string][]string `json:"attributes,omitempty"`
+	RequiredActions []string            `json:"required_actions,omitempty"`
+	Credentials     []Credential        `json:"credentials,omitempty"`
 }
 
 type Client struct {
