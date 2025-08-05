@@ -495,3 +495,14 @@ func (ka *KeycloakClient) GetUserIDByUsername(ctx context.Context, username stri
 	}
 	return users[0].ID, nil
 }
+
+func (ka *KeycloakClient) GetAccessToken(ctx context.Context) (string, error) {
+	if err := ka.ensureTokenValid(ctx); err != nil {
+		return "", err
+	}
+
+	ka.mu.Lock()
+	defer ka.mu.Unlock()
+
+	return ka.accessToken, nil
+}
