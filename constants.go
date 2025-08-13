@@ -71,4 +71,13 @@ const (
 	ErrRequestFailed                            = "ErrRequestFailed"
 	ErrFailedToAddRolesRollbackFailed           = "ErrFailedToAddRolesRollbackFailed"
 	ErrFailedToAddRolesUserDeleted              = "ErrFailedToAddRolesUserDeleted"
+	ErrSubjectRequired                          = "subject é obrigatório"
+	ErrRedirectURIRequired                      = "ErrRedirectURIRequired"
+	ErrFailedToGetUserID                        = "ErrFailedToGetUserID"
+	ErrFailedToObtainImpersonationToken         = "ErrFailedToObtainImpersonationToken"
+	ErrNoCookiesInResponse                      = "ErrNoCookiesInResponse"
+	ErrNoRedirectInResponse                     = "ErrNoRedirectInResponse"
+	ErrFailedToParseLocation                    = "ErrFailedToParseLocation"
+	ErrNoTokenInLocation                        = "ErrNoTokenInLocation"
+	ErrFailedToParseTokenParams                 = "ErrFailedToParseTokenParams"
 )

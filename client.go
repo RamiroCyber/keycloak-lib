@@ -139,6 +139,7 @@ func NewKeycloakClient(ctx context.Context, config *Config) (*KeycloakClient, er
 	if lang != PT {
 		lang = EN
 	}
+
 	if config.ClientID == emptyString || config.ClientSecret == emptyString {
 		return nil, makeError(lang, ErrClientIDAndSecretRequired)
 	}
@@ -193,7 +194,8 @@ func (ka *KeycloakClient) doRequest(ctx context.Context, method, path string, bo
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return ka.errorf(ErrRequestFailed, resp.StatusCode, bodyBytes)
+		bodyString := string(bodyBytes)
+		return ka.errorf(ErrRequestFailed, resp.StatusCode, bodyString)
 	}
 
 	if result != nil {
@@ -303,7 +305,8 @@ func (ka *KeycloakClient) Login(ctx context.Context, username, password string, 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, ka.errorf(ErrFailedToObtainLoginToken, resp.StatusCode, body)
+		bodyString := string(body)
+		return nil, ka.errorf(ErrFailedToObtainLoginToken, resp.StatusCode, bodyString)
 	}
 
 	var token oauth2.Token
