@@ -1,20 +1,24 @@
 package keycloaklib
 
 import (
-	"context"
+	"crypto/tls"
 	"errors"
-	"fmt"
-	"github.com/coreos/go-oidc/v3/oidc"
-	"golang.org/x/oauth2"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 type Config struct {
-	URL            string
-	Realm          string
-	ClientID       string
-	ClientSecret   string
-	PublicClientID string
-	Language       string
+	URL               string
+	Realm             string
+	ClientID          string
+	ClientSecret      string
+	PublicClientID    string
+	Language          string
+	HTTPClient        *http.Client
+	TokenEndpoint     string
+	AllowInsecureHTTP bool
 }
 
 type ConfigBuilder struct {
@@ -24,7 +28,8 @@ type ConfigBuilder struct {
 func NewConfigBuilder() *ConfigBuilder {
 	return &ConfigBuilder{
 		config: Config{
-			Language: EN,
+			Language:   DefaultLanguage,
+			HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		},
 	}
 }
@@ -33,7 +38,7 @@ func (b *ConfigBuilder) WithLanguage(language string) *ConfigBuilder {
 	if language == PT {
 		b.config.Language = PT
 	} else {
-		b.config.Language = EN
+		b.config.Language = DefaultLanguage
 	}
 	return b
 }
@@ -63,14 +68,43 @@ func (b *ConfigBuilder) WithPublicClientID(publicClientID string) *ConfigBuilder
 	return b
 }
 
+func (b *ConfigBuilder) WithHTTPClient(client *http.Client) *ConfigBuilder {
+	b.config.HTTPClient = client
+	return b
+}
+
+func (b *ConfigBuilder) WithCustomTLS(tlsConfig *tls.Config) *ConfigBuilder {
+	b.config.HTTPClient.Transport = &http.Transport{TLSClientConfig: tlsConfig}
+	return b
+}
+
+func (b *ConfigBuilder) WithTokenEndpoint(endpoint string) *ConfigBuilder {
+	b.config.TokenEndpoint = endpoint
+	return b
+}
+
+func (b *ConfigBuilder) WithAllowInsecureHTTP(allow bool) *ConfigBuilder {
+	b.config.AllowInsecureHTTP = allow
+	return b
+}
+
 func (b *ConfigBuilder) Build() (*Config, error) {
 	lang := b.config.Language
 	if lang != PT {
-		lang = EN
+		lang = DefaultLanguage
 	}
 
 	if b.config.URL == emptyString {
 		msg := translations[lang][ErrKeycloakURLRequired]
+		return nil, errors.New(msg)
+	}
+	if !strings.HasPrefix(b.config.URL, "https://") && !b.config.AllowInsecureHTTP {
+		msg := translations[lang][ErrKeycloakURLMustUseHTTPS]
+		return nil, errors.New(msg)
+	}
+	u, err := url.Parse(b.config.URL)
+	if err != nil || u.Host == "" {
+		msg := translations[lang][ErrInvalidKeycloakURL]
 		return nil, errors.New(msg)
 	}
 	if b.config.Realm == emptyString {
@@ -85,28 +119,8 @@ func (b *ConfigBuilder) Build() (*Config, error) {
 		msg := translations[lang][ErrKeycloakClientSecretRequired]
 		return nil, errors.New(msg)
 	}
-
+	if b.config.HTTPClient == nil {
+		b.config.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	}
 	return &b.config, nil
-}
-
-func (c *Config) OAuth2Config(redirectURL string, scopes []string) *oauth2.Config {
-	clientID := c.ClientID
-	if c.PublicClientID != "" {
-		clientID = c.PublicClientID
-	}
-	return &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: c.ClientSecret,
-		RedirectURL:  redirectURL,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  fmt.Sprintf("%s/realms/%s/protocol/openid-connect/auth", c.URL, c.Realm),
-			TokenURL: fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", c.URL, c.Realm),
-		},
-		Scopes: scopes,
-	}
-}
-
-func (c *Config) Provider(ctx context.Context) (*oidc.Provider, error) {
-	issuer := fmt.Sprintf("%s/realms/%s", c.URL, c.Realm)
-	return oidc.NewProvider(ctx, issuer)
 }

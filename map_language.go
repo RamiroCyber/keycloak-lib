@@ -2,6 +2,10 @@ package keycloaklib
 
 var translations = map[string]map[string]string{
 	"en": {
+		ErrInvalidKeycloakURL:                       "Invalid Keycloak URL",
+		ErrKeycloakURLMustUseHTTPS:                  "Keycloak URL must use HTTPS for security",
+		ErrUserNotFound:                             "User not found",
+		ErrGroupNotFound:                            "Group not found",
 		ErrConfigRequired:                           "config is required",
 		ErrKeycloakURLRequired:                      "KEYCLOAK_URL variable is required",
 		ErrKeycloakRealmRequired:                    "KEYCLOAK_REALM variable is required",
@@ -56,8 +60,14 @@ var translations = map[string]map[string]string{
 		ErrUsernameRequired:                         "username is required",
 		ErrNoUserFound:                              "no user found with username: %s",
 		ErrMultipleUsersFound:                       "multiple users found with username: %s",
+		ErrFailedToMarshal:                          "failed to marshal request body: %w",
+		ErrRequestFailed:                            "request failed: status %d, body: %s",
+		ErrFailedToAddRolesRollbackFailed:           "failed to add roles: %v; rollback failed: %v",
+		ErrFailedToAddRolesUserDeleted:              "failed to add roles: %v; user deleted successfully",
 	},
 	"pt": {
+		ErrInvalidKeycloakURL:                       "URL do Keycloak inválida",
+		ErrKeycloakURLMustUseHTTPS:                  "URL do Keycloak deve usar HTTPS por segurança",
 		ErrConfigRequired:                           "a configuração é obrigatória",
 		ErrKeycloakURLRequired:                      "a variável KEYCLOAK_URL é obrigatória",
 		ErrKeycloakRealmRequired:                    "a variável KEYCLOAK_REALM é obrigatória",
@@ -112,5 +122,9 @@ var translations = map[string]map[string]string{
 		ErrUsernameRequired:                         "nome de usuário é obrigatório",
 		ErrNoUserFound:                              "nenhum usuário encontrado com nome de usuário: %s",
 		ErrMultipleUsersFound:                       "múltiplos usuários encontrados com nome de usuário: %s",
+		ErrFailedToMarshal:                          "falha ao serializar o corpo da solicitação: %w",
+		ErrRequestFailed:                            "falha na solicitação: status %d, corpo: %s",
+		ErrFailedToAddRolesRollbackFailed:           "falha ao adicionar roles: %v; falha no rollback: %v",
+		ErrFailedToAddRolesUserDeleted:              "falha ao adicionar roles: %v; usuário deletado com sucesso",
 	},
 }

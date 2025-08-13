@@ -15,6 +15,9 @@ import (
 
 func getClientToken(ctx context.Context, config *Config, lang string) (*tokenResponse, error) {
 	tokenURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", config.URL, config.Realm)
+	if config.TokenEndpoint != "" {
+		tokenURL = config.TokenEndpoint
+	}
 	data := url.Values{}
 	data.Set("grant_type", "client_credentials")
 	data.Set("client_id", config.ClientID)
@@ -26,7 +29,7 @@ func getClientToken(ctx context.Context, config *Config, lang string) (*tokenRes
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := config.HTTPClient.Do(req)
 	if err != nil {
 		return nil, makeError(lang, ErrFailedToExecuteRequest, err)
 	}
@@ -56,6 +59,9 @@ func (ka *KeycloakClient) refreshAdminToken(ctx context.Context) error {
 	}
 
 	tokenURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", ka.config.URL, ka.config.Realm)
+	if ka.config.TokenEndpoint != "" {
+		tokenURL = ka.config.TokenEndpoint
+	}
 	data := url.Values{}
 	data.Set("grant_type", "refresh_token")
 	data.Set("client_id", ka.config.ClientID)
@@ -92,11 +98,18 @@ func (ka *KeycloakClient) refreshAdminToken(ctx context.Context) error {
 
 	ka.accessToken = tok.AccessToken
 	ka.refreshToken = tok.RefreshToken
-	ka.expiry = time.Now().Add(time.Duration(tok.ExpiresIn)*time.Second - 30*time.Second)
+	ka.expiry = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Add(-30 * time.Second)
 	return nil
 }
 
 func (ka *KeycloakClient) ensureTokenValid(ctx context.Context) error {
+	ka.mu.RLock()
+	if time.Now().Before(ka.expiry) {
+		ka.mu.RUnlock()
+		return nil
+	}
+	ka.mu.RUnlock()
+
 	ka.mu.Lock()
 	defer ka.mu.Unlock()
 
@@ -114,17 +127,17 @@ func (ka *KeycloakClient) ensureTokenValid(ctx context.Context) error {
 	}
 	ka.accessToken = tok.AccessToken
 	ka.refreshToken = tok.RefreshToken
-	ka.expiry = time.Now().Add(time.Duration(tok.ExpiresIn)*time.Second - 30*time.Second)
+	ka.expiry = time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Add(-30 * time.Second)
 	return nil
 }
 
 func NewKeycloakClient(ctx context.Context, config *Config) (*KeycloakClient, error) {
 	if config == nil {
-		return nil, makeError("en", ErrConfigRequired)
+		return nil, makeError(EN, ErrConfigRequired)
 	}
 	lang := config.Language
-	if lang != "pt" {
-		lang = "en"
+	if lang != PT {
+		lang = EN
 	}
 	if config.ClientID == emptyString || config.ClientSecret == emptyString {
 		return nil, makeError(lang, ErrClientIDAndSecretRequired)
@@ -135,10 +148,10 @@ func NewKeycloakClient(ctx context.Context, config *Config) (*KeycloakClient, er
 		return nil, err
 	}
 
-	expiry := time.Now().Add(time.Duration(tok.ExpiresIn)*time.Second - 30*time.Second)
+	expiry := time.Now().Add(time.Duration(tok.ExpiresIn) * time.Second).Add(-30 * time.Second)
 
 	ka := &KeycloakClient{
-		client:       http.DefaultClient,
+		client:       config.HTTPClient,
 		accessToken:  tok.AccessToken,
 		refreshToken: tok.RefreshToken,
 		expiry:       expiry,
@@ -149,11 +162,47 @@ func NewKeycloakClient(ctx context.Context, config *Config) (*KeycloakClient, er
 	return ka, nil
 }
 
-func (ka *KeycloakClient) CreateUser(ctx context.Context, params UserCreateParams) (string, error) {
+func (ka *KeycloakClient) doRequest(ctx context.Context, method, path string, body interface{}, result interface{}) error {
 	if err := ka.ensureTokenValid(ctx); err != nil {
-		return emptyString, ka.errorf(ErrTokenRefreshFailed, err)
+		return err
 	}
 
+	fullURL := ka.config.URL + path
+
+	var reqBody io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return ka.errorf(ErrFailedToMarshal, err)
+		}
+		reqBody = bytes.NewReader(jsonBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
+	if err != nil {
+		return ka.errorf(ErrFailedToCreateRequest, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := ka.client.Do(req)
+	if err != nil {
+		return ka.errorf(ErrFailedToExecuteRequest, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return ka.errorf(ErrRequestFailed, resp.StatusCode, bodyBytes)
+	}
+
+	if result != nil {
+		return json.NewDecoder(resp.Body).Decode(result)
+	}
+	return nil
+}
+
+func (ka *KeycloakClient) CreateUser(ctx context.Context, params UserCreateParams) (string, error) {
 	enabled := params.Enabled
 	emailVerified := params.EmailVerified
 
@@ -169,95 +218,42 @@ func (ka *KeycloakClient) CreateUser(ctx context.Context, params UserCreateParam
 		Credentials:     params.Credentials,
 	}
 
-	jsonBody, err := json.Marshal(user)
+	path := fmt.Sprintf("/admin/realms/%s/users", ka.config.Realm)
+	if err := ka.doRequest(ctx, http.MethodPost, path, user, nil); err != nil {
+		return emptyString, err
+	}
+
+	return ka.GetUserIDByUsername(ctx, params.Username, true)
+}
+
+func (ka *KeycloakClient) CreateUserWithRoles(ctx context.Context, params UserCreateParams, clientID string, roleNames []string) (string, error) {
+	userID, err := ka.CreateUser(ctx, params)
 	if err != nil {
-		return emptyString, ka.errorf(ErrFailedToMarshalUser, err)
+		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ka.baseURL, bytes.NewReader(jsonBody))
+	err = ka.AddClientRolesToUser(ctx, userID, clientID, roleNames)
 	if err != nil {
-		return emptyString, ka.errorf(ErrFailedToCreateUserRequest, err)
+		delErr := ka.DeleteUser(ctx, userID)
+		if delErr != nil {
+			return "", ka.errorf(ErrFailedToAddRolesRollbackFailed, err, delErr)
+		}
+		return "", ka.errorf(ErrFailedToAddRolesUserDeleted, err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return emptyString, ka.errorf(ErrFailedToExecuteRequest, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return emptyString, ka.errorf(ErrFailedToCreateUser, resp.StatusCode, body)
-	}
-
-	location := resp.Header.Get("Location")
-	if location == emptyString {
-		return emptyString, ka.errorf(ErrNoLocationHeader)
-	}
-	parts := strings.Split(location, "/")
-	if len(parts) < 2 {
-		return emptyString, ka.errorf(ErrInvalidLocationHeader)
-	}
-	userID := parts[len(parts)-1]
 
 	return userID, nil
 }
 
 func (ka *KeycloakClient) GetUserByID(ctx context.Context, userID string) (*User, error) {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return nil, ka.errorf(ErrTokenRefreshFailed, err)
-	}
-
-	url := fmt.Sprintf("%s/%s", ka.baseURL, userID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, ka.errorf(ErrFailedToGetUserRequest, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return nil, ka.errorf(ErrFailedToExecuteGetUser, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, ka.errorf(ErrFailedToGetUser, resp.StatusCode, body)
-	}
-
+	path := fmt.Sprintf("/admin/realms/%s/users/%s", ka.config.Realm, userID)
 	var user User
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, ka.errorf(ErrFailedToDecodeUser, err)
-	}
-	return &user, nil
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &user)
+	return &user, err
 }
 
 func (ka *KeycloakClient) DeleteUser(ctx context.Context, userID string) error {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return ka.errorf(ErrTokenRefreshFailed, err)
-	}
-
-	url := fmt.Sprintf("%s/%s", ka.baseURL, userID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
-	if err != nil {
-		return ka.errorf(ErrFailedToDeleteUserRequest, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return ka.errorf(ErrFailedToExecuteDeleteUser, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return ka.errorf(ErrFailedToDeleteUser, resp.StatusCode, body)
-	}
-	return nil
+	path := fmt.Sprintf("/admin/realms/%s/users/%s", ka.config.Realm, userID)
+	return ka.doRequest(ctx, http.MethodDelete, path, nil, nil)
 }
 
 func (ka *KeycloakClient) Login(ctx context.Context, username, password string, scopes []string) (*oauth2.Token, error) {
@@ -273,6 +269,9 @@ func (ka *KeycloakClient) Login(ctx context.Context, username, password string, 
 	}
 
 	tokenURL := fmt.Sprintf("%s/realms/%s/protocol/openid-connect/token", ka.config.URL, ka.config.Realm)
+	if ka.config.TokenEndpoint != "" {
+		tokenURL = ka.config.TokenEndpoint
+	}
 
 	data := url.Values{}
 	data.Set("grant_type", "password")
@@ -292,8 +291,7 @@ func (ka *KeycloakClient) Login(ctx context.Context, username, password string, 
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := ka.client.Do(req)
 	if err != nil {
 		return nil, ka.errorf(ErrFailedToExecuteRequest, err)
 	}
@@ -321,75 +319,26 @@ func (ka *KeycloakClient) Login(ctx context.Context, username, password string, 
 }
 
 func (ka *KeycloakClient) getClientByClientID(ctx context.Context, clientID string) (*Client, error) {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return nil, ka.errorf(ErrTokenRefreshFailed, err)
-	}
-
-	clientURL := fmt.Sprintf("%s/admin/realms/%s/clients?clientId=%s", ka.config.URL, ka.config.Realm, url.QueryEscape(clientID))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clientURL, nil)
-	if err != nil {
-		return nil, ka.errorf(ErrFailedToCreateGetClientRequest, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return nil, ka.errorf(ErrFailedToExecuteGetClient, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, ka.errorf(ErrFailedToGetClient, resp.StatusCode, body)
-	}
-
+	path := fmt.Sprintf("/admin/realms/%s/clients?clientId=%s", ka.config.Realm, url.QueryEscape(clientID))
 	var clients []Client
-	if err := json.NewDecoder(resp.Body).Decode(&clients); err != nil {
-		return nil, ka.errorf(ErrFailedToDecodeClients, err)
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &clients)
+	if err != nil {
+		return nil, err
 	}
-
 	if len(clients) == 0 {
 		return nil, ka.errorf(ErrNoClientFound, clientID)
 	}
-
 	return &clients[0], nil
 }
 
 func (ka *KeycloakClient) getClientRole(ctx context.Context, clientUUID, roleName string) (*Role, error) {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return nil, ka.errorf(ErrTokenRefreshFailed, err)
-	}
-
-	roleURL := fmt.Sprintf("%s/admin/realms/%s/clients/%s/roles/%s", ka.config.URL, ka.config.Realm, clientUUID, url.PathEscape(roleName))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, roleURL, nil)
-	if err != nil {
-		return nil, ka.errorf(ErrFailedToCreateGetClientRoleRequest, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return nil, ka.errorf(ErrFailedToExecuteGetClientRole, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, ka.errorf(ErrFailedToGetClientRole, resp.StatusCode, body)
-	}
-
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/roles/%s", ka.config.Realm, clientUUID, url.PathEscape(roleName))
 	var role Role
-	if err := json.NewDecoder(resp.Body).Decode(&role); err != nil {
-		return nil, ka.errorf(ErrFailedToDecodeClientRole, err)
-	}
-	return &role, nil
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &role)
+	return &role, err
 }
 
 func (ka *KeycloakClient) AddClientRolesToUser(ctx context.Context, userID, clientID string, roleNames []string) error {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return ka.errorf(ErrTokenRefreshFailed, err)
-	}
-
 	client, err := ka.getClientByClientID(ctx, clientID)
 	if err != nil {
 		return ka.errorf(ErrFailedToGetClientWrapper, err)
@@ -405,87 +354,29 @@ func (ka *KeycloakClient) AddClientRolesToUser(ctx context.Context, userID, clie
 		roles = append(roles, *role)
 	}
 
-	jsonBody, err := json.Marshal(roles)
-	if err != nil {
-		return ka.errorf(ErrFailedToMarshalClientRoles, err)
-	}
-
-	addURL := fmt.Sprintf("%s/%s/role-mappings/clients/%s", ka.baseURL, userID, clientUUID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, addURL, bytes.NewReader(jsonBody))
-	if err != nil {
-		return ka.errorf(ErrFailedToCreateAddClientRolesRequest, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return ka.errorf(ErrFailedToExecuteAddClientRoles, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return ka.errorf(ErrFailedToAddClientRoles, resp.StatusCode, body)
-	}
-	return nil
+	path := fmt.Sprintf("/admin/realms/%s/users/%s/role-mappings/clients/%s", ka.config.Realm, userID, clientUUID)
+	return ka.doRequest(ctx, http.MethodPost, path, roles, nil)
 }
 
 func (ka *KeycloakClient) TriggerPasswordResetEmail(ctx context.Context, userID string) error {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return ka.errorf(ErrTokenRefreshFailed, err)
-	}
 	if userID == emptyString {
 		return ka.errorf(ErrUserIDRequired)
 	}
-	resetURL := fmt.Sprintf("%s/admin/realms/%s/users/%s/reset-password-email", ka.config.URL, ka.config.Realm, userID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, resetURL, nil)
-	if err != nil {
-		return ka.errorf(ErrFailedToCreateResetPasswordEmailRequest, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return ka.errorf(ErrFailedToExecuteResetPasswordEmailRequest, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return ka.errorf(ErrFailedToTriggerPasswordResetEmail, resp.StatusCode, body)
-	}
-	return nil
+	path := fmt.Sprintf("/admin/realms/%s/users/%s/reset-password-email", ka.config.Realm, userID)
+	return ka.doRequest(ctx, http.MethodPut, path, nil, nil)
 }
 
 func (ka *KeycloakClient) GetUserIDByUsername(ctx context.Context, username string, exact bool) (string, error) {
-	if err := ka.ensureTokenValid(ctx); err != nil {
-		return emptyString, ka.errorf(ErrTokenRefreshFailed, err)
-	}
 	if username == emptyString {
 		return emptyString, ka.errorf(ErrUsernameRequired)
 	}
-	searchURL := ka.baseURL
-	params := url.Values{}
-	params.Add("username", username)
+	path := fmt.Sprintf("/admin/realms/%s/users?username=%s", ka.config.Realm, url.QueryEscape(username))
 	if exact {
-		params.Add("exact", "true")
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL+"?"+params.Encode(), nil)
-	if err != nil {
-		return emptyString, ka.errorf(ErrFailedToCreateGetUserRequest, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+ka.accessToken)
-	resp, err := ka.client.Do(req)
-	if err != nil {
-		return emptyString, ka.errorf(ErrFailedToExecuteGetUser, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return emptyString, ka.errorf(ErrFailedToGetUser, resp.StatusCode, body)
+		path += "&exact=true"
 	}
 	var users []User
-	if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
-		return emptyString, ka.errorf(ErrFailedToDecodeUser, err)
+	if err := ka.doRequest(ctx, http.MethodGet, path, nil, &users); err != nil {
+		return emptyString, err
 	}
 	if len(users) == 0 {
 		return emptyString, ka.errorf(ErrNoUserFound, username)
@@ -494,4 +385,85 @@ func (ka *KeycloakClient) GetUserIDByUsername(ctx context.Context, username stri
 		return emptyString, ka.errorf(ErrMultipleUsersFound, username)
 	}
 	return users[0].ID, nil
+}
+
+func (ka *KeycloakClient) UpdateUser(ctx context.Context, userID string, user *User) error {
+	path := fmt.Sprintf("/admin/realms/%s/users/%s", ka.config.Realm, userID)
+	return ka.doRequest(ctx, http.MethodPut, path, user, nil)
+}
+
+func (ka *KeycloakClient) GetUsers(ctx context.Context, searchQuery string) ([]User, error) {
+	path := fmt.Sprintf("/admin/realms/%s/users", ka.config.Realm)
+	if searchQuery != "" {
+		path += "?search=" + url.QueryEscape(searchQuery)
+	}
+	var users []User
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &users)
+	return users, err
+}
+
+func (ka *KeycloakClient) CreateGroup(ctx context.Context, group *Group) error {
+	path := fmt.Sprintf("/admin/realms/%s/groups", ka.config.Realm)
+	return ka.doRequest(ctx, http.MethodPost, path, group, nil)
+}
+
+func (ka *KeycloakClient) GetGroupByID(ctx context.Context, groupID string) (*Group, error) {
+	path := fmt.Sprintf("/admin/realms/%s/groups/%s", ka.config.Realm, groupID)
+	var group Group
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &group)
+	return &group, err
+}
+
+func (ka *KeycloakClient) AddUserToGroup(ctx context.Context, userID, groupID string) error {
+	path := fmt.Sprintf("/admin/realms/%s/groups/%s/members/%s", ka.config.Realm, groupID, userID)
+	return ka.doRequest(ctx, http.MethodPut, path, nil, nil)
+}
+
+func (ka *KeycloakClient) CreateRole(ctx context.Context, role *Role) error {
+	path := fmt.Sprintf("/admin/realms/%s/roles", ka.config.Realm)
+	return ka.doRequest(ctx, http.MethodPost, path, role, nil)
+}
+
+func (ka *KeycloakClient) GetRoles(ctx context.Context) ([]Role, error) {
+	path := fmt.Sprintf("/admin/realms/%s/roles", ka.config.Realm)
+	var roles []Role
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &roles)
+	return roles, err
+}
+
+func (ka *KeycloakClient) CreateClient(ctx context.Context, client *Client) error {
+	path := fmt.Sprintf("/admin/realms/%s/clients", ka.config.Realm)
+	return ka.doRequest(ctx, http.MethodPost, path, client, nil)
+}
+
+func (ka *KeycloakClient) GetClientRoles(ctx context.Context, clientID string) ([]Role, error) {
+	client, err := ka.getClientByClientID(ctx, clientID)
+	if err != nil {
+		return nil, ka.errorf(ErrFailedToGetClientWrapper, err)
+	}
+	clientUUID := client.ID
+
+	path := fmt.Sprintf("/admin/realms/%s/clients/%s/roles", ka.config.Realm, clientUUID)
+	var roles []Role
+	err = ka.doRequest(ctx, http.MethodGet, path, nil, &roles)
+	return roles, err
+}
+
+func (ka *KeycloakClient) GetClients(ctx context.Context) ([]Client, error) {
+	path := fmt.Sprintf("/admin/realms/%s/clients", ka.config.Realm)
+	var clients []Client
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &clients)
+	return clients, err
+}
+
+func (ka *KeycloakClient) LogoutUser(ctx context.Context, userID string) error {
+	path := fmt.Sprintf("/admin/realms/%s/users/%s/logout", ka.config.Realm, userID)
+	return ka.doRequest(ctx, http.MethodPost, path, nil, nil)
+}
+
+func (ka *KeycloakClient) GetSessions(ctx context.Context, userID string) ([]map[string]interface{}, error) {
+	path := fmt.Sprintf("/admin/realms/%s/users/%s/sessions", ka.config.Realm, userID)
+	var sessions []map[string]interface{}
+	err := ka.doRequest(ctx, http.MethodGet, path, nil, &sessions)
+	return sessions, err
 }

@@ -8,14 +8,14 @@ import (
 )
 
 type KeycloakClient struct {
-	mu           sync.Mutex
 	client       *http.Client
 	accessToken  string
 	refreshToken string
 	expiry       time.Time
 	config       *Config
-	baseURL      string
 	language     string
+	baseURL      string
+	mu           sync.RWMutex
 }
 
 type UserCreateParams struct {
@@ -133,4 +133,10 @@ type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
+}
+
+type Group struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
 }
