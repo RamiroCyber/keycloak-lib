@@ -73,6 +73,7 @@ var translations = map[string]map[string]string{
 		ErrFailedToParseLocation:                    "failed to parse location header: %w",
 		ErrNoTokenInLocation:                        "no token parameters in location header",
 		ErrFailedToParseTokenParams:                 "failed to parse token parameters: %w",
+		ErrFailedToGenerateMagicLink:                "failed to generate magic link: status %d, body: %s",
 	},
 	"pt": {
 		ErrInvalidKeycloakURL:                       "URL do Keycloak inválida",
@@ -144,5 +145,6 @@ var translations = map[string]map[string]string{
 		ErrFailedToParseLocation:                    "falha ao analisar o cabeçalho location: %w",
 		ErrNoTokenInLocation:                        "nenhum parâmetro de token no cabeçalho location",
 		ErrFailedToParseTokenParams:                 "falha ao analisar os parâmetros do token: %w",
+		ErrFailedToGenerateMagicLink:                "falha ao gerar magic link: status %d, corpo: %s",
 	},
 }

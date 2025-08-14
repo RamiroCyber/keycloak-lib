@@ -80,4 +80,5 @@ const (
 	ErrFailedToParseLocation                    = "ErrFailedToParseLocation"
 	ErrNoTokenInLocation                        = "ErrNoTokenInLocation"
 	ErrFailedToParseTokenParams                 = "ErrFailedToParseTokenParams"
+	ErrFailedToGenerateMagicLink                = "ErrFailedToGenerateMagicLink"
 )

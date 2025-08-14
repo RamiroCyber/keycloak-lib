@@ -101,8 +101,8 @@ type User struct {
 	Email           string              `json:"email,omitempty"`
 	FirstName       string              `json:"firstName,omitempty"`
 	LastName        string              `json:"lastName,omitempty"`
-	Enabled         *bool               `json:"enabled,omitempty"`
-	EmailVerified   *bool               `json:"emailVerified,omitempty"`
+	Enabled         bool                `json:"enabled,omitempty"`
+	EmailVerified   bool                `json:"emailVerified,omitempty"`
 	Attributes      map[string][]string `json:"attributes,omitempty"`
 	RequiredActions []string            `json:"requiredActions,omitempty"`
 	Credentials     []Credential        `json:"credentials,omitempty"`
@@ -139,4 +139,30 @@ type Group struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	Path string `json:"path,omitempty"`
+}
+
+type DeviceAuthResponse struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURI         string `json:"verification_uri"`
+	VerificationURIComplete string `json:"verification_uri_complete,omitempty"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
+}
+
+type MagicLinkRequest struct {
+	Email             string `json:"email"`
+	ClientID          string `json:"client_id"`
+	RedirectURI       string `json:"redirect_uri"`
+	ExpirationSeconds int    `json:"expiration_seconds,omitempty"`
+	ForceCreate       bool   `json:"force_create,omitempty"`
+	UpdateProfile     bool   `json:"update_profile,omitempty"`
+	UpdatePassword    bool   `json:"update_password,omitempty"`
+	SendEmail         bool   `json:"send_email"`
+}
+
+type MagicLinkResponse struct {
+	UserID string `json:"user_id"`
+	Link   string `json:"link"`
+	Sent   bool   `json:"sent"`
 }
