@@ -16,6 +16,7 @@ This library is suitable for backend services, APIs, or CLI tools requiring Keyc
 - [Usage](#usage)
   - [Initializing the Library](#initializing-the-library)
   - [Admin Operations](#admin-operations)
+  - [Advanced Authentication](#advanced-authentication)
 - [Full Example: Web App Integration](#full-example-web-app-integration)
 - [Best Practices](#best-practices)
 - [Security Considerations](#security-considerations)
@@ -27,7 +28,7 @@ This library is suitable for backend services, APIs, or CLI tools requiring Keyc
 ## Features
 - **Admin API Support**: User create/get/update/delete with attributes, passwords, verification, and required actions; add client-specific roles to users; trigger password reset emails; get user ID by username; group/role/client management; session handling and logout.
 - **Token Management**: Client credentials grant, caching with lazy refresh, expiration checks, and thread-safety using RWMutex to minimize API calls.
-- **User Login**: Supports password grant for obtaining OAuth2 tokens with scopes.
+- **User Login**: Supports password grant for obtaining OAuth2 tokens with scopes; device code flow; authorization code exchange; magic link generation.
 - **Thread-Safety**: RWMutex-protected token operations for concurrent use.
 - **Customization**: Builder pattern for config; support for custom HTTP clients, TLS configs, and token endpoints; error messages in English or Portuguese.
 - **Minimal Dependencies**: Standard lib + `golang.org/x/oauth2`; no heavy wrappers.
@@ -114,6 +115,22 @@ if err != nil {
     // Handle error
 }
 userID, err := admin.CreateUser(ctx, params)
+if err != nil {
+    // Handle error
+}
+```
+
+#### Create User with Roles
+Creates a user and assigns client-specific roles, with rollback (user deletion) on role assignment failure.
+
+```go
+params, err := keycloaklib.NewUserCreateParamsBuilder().
+    // ... (same as above)
+    Build()
+if err != nil {
+    // Handle error
+}
+userID, err := admin.CreateUserWithRoles(ctx, params, "client-id", []string{"role1", "role2"})
 if err != nil {
     // Handle error
 }
@@ -222,6 +239,14 @@ if err != nil {
 }
 ```
 
+#### Get Client Roles
+```go
+roles, err := admin.GetClientRoles(ctx, "client-id")
+if err != nil {
+    // Handle error
+}
+```
+
 #### Create Client
 ```go
 client := &keycloaklib.Client{ClientID: "new-client"}
@@ -255,6 +280,7 @@ if err != nil {
 }
 ```
 
+### Advanced Authentication
 #### User Login (Password Grant)
 ```go
 token, err := admin.Login(ctx, "username", "password", []string{"scope1", "scope2"})
@@ -262,6 +288,56 @@ if err != nil {
     // Handle error
 }
 // Use token.AccessToken, etc.
+```
+
+#### Start Device Login
+Initiates a device code flow for user authentication.
+
+```go
+deviceResp, err := admin.StartDeviceLogin(ctx, []string{"scope1", "scope2"})
+if err != nil {
+    // Handle error
+}
+// Use deviceResp.UserCode, deviceResp.VerificationURI, etc., to prompt the user.
+```
+
+#### Poll Device Token
+Polls for the token after starting device login.
+
+```go
+token, err := admin.PollDeviceToken(ctx, "device-code", 5) // Poll every 5 seconds
+if err != nil {
+    // Handle error
+}
+// Use token.AccessToken, etc.
+```
+
+#### Exchange Code for Token
+Exchanges an authorization code for a token (e.g., in OAuth2 callback).
+
+```go
+token, err := admin.ExchangeCodeForToken(ctx, "auth-code", "https://example.com/callback")
+if err != nil {
+    // Handle error
+}
+// Use token.AccessToken, etc.
+```
+
+#### Generate Magic Link
+Generates a magic link for passwordless login (email sending disabled by default).
+
+```go
+req := keycloaklib.MagicLinkRequest{
+    Email:       "user@example.com",
+    ClientID:    "client-id",
+    RedirectURI: "https://example.com/redirect",
+    // Other fields...
+}
+link, err := admin.GenerateMagicLink(ctx, req)
+if err != nil {
+    // Handle error
+}
+// Send the link to the user.
 ```
 
 ## Full Example: Web App Integration
